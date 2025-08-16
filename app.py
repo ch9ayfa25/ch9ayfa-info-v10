@@ -4,10 +4,9 @@ import httpx
 import json
 import os
 from collections import defaultdict
-from flask import Flask, request, jsonify
-from flask_cors import CORS
+from quart import Quart, request, jsonify
+from quart_cors import cors
 from cachetools import TTLCache
-from typing import Tuple
 from proto import FreeFire_pb2, main_pb2, AccountPersonalShow_pb2
 from google.protobuf import json_format, message
 from google.protobuf.message import Message
@@ -21,11 +20,12 @@ RELEASEVERSION = "OB50"
 USERAGENT = "Dalvik/2.1.0 (Linux; U; Android 13; CPH2095 Build/RKQ1.211119.001)"
 SUPPORTED_REGIONS = {"IND", "BR", "US", "SAC", "NA", "SG", "RU", "ID", "TW", "VN", "TH", "ME", "PK", "CIS", "BD", "EU"}
 
-# === Flask App Setup ===
-app = Flask(__name__)
-CORS(app)
+# === Quart App Setup ===
+app = Quart(__name__)
+app = cors(app)
 cache = TTLCache(maxsize=100, ttl=300)
 cached_tokens = defaultdict(dict)
+lock = asyncio.Lock()
 
 # === Helper Functions ===
 def pad(text: bytes) -> bytes:
@@ -78,6 +78,7 @@ async def create_jwt(region: str):
     async with httpx.AsyncClient() as client:
         resp = await client.post(url, data=payload, headers=headers)
         msg = json.loads(json_format.MessageToJson(decode_protobuf(resp.content, FreeFire_pb2.LoginRes)))
+    async with lock:
         cached_tokens[region] = {
             'token': f"Bearer {msg.get('token','0')}",
             'region': msg.get('lockRegion','0'),
@@ -89,18 +90,25 @@ async def initialize_tokens():
     tasks = [create_jwt(r) for r in SUPPORTED_REGIONS]
     await asyncio.gather(*tasks)
 
-async def get_token_info(region: str) -> Tuple[str, str, str]:
-    info = cached_tokens.get(region)
-    if info and time.time() < info['expires_at']:
-        return info['token'], info['region'], info['server_url']
+async def refresh_tokens_periodically():
+    while True:
+        await asyncio.sleep(25200)
+        await initialize_tokens()
+
+async def get_token_info(region: str):
+    async with lock:
+        info = cached_tokens.get(region)
+        if info and time.time() < info['expires_at']:
+            return info['token'], info['region'], info['server_url']
     await create_jwt(region)
-    info = cached_tokens[region]
-    return info['token'], info['region'], info['server_url']
+    async with lock:
+        info = cached_tokens[region]
+        return info['token'], info['region'], info['server_url']
 
 async def GetAccountInformation(uid, unk, region, endpoint):
     payload = await json_to_proto(json.dumps({'a': uid, 'b': unk}), main_pb2.GetPlayerPersonalShow())
     data_enc = aes_cbc_encrypt(MAIN_KEY, MAIN_IV, payload)
-    token, lock, server = await get_token_info(region)
+    token, lock_region, server = await get_token_info(region)
     headers = {
         'User-Agent': USERAGENT,
         'Connection': "Keep-Alive",
@@ -118,42 +126,9 @@ async def GetAccountInformation(uid, unk, region, endpoint):
 
 def format_response(data):
     return {
-        "AccountInfo": {
-            "AccountAvatarId": data.get("basicInfo", {}).get("headPic"),
-            "AccountBPBadges": data.get("basicInfo", {}).get("badgeCnt"),
-            "AccountBPID": data.get("basicInfo", {}).get("badgeId"),
-            "AccountBannerId": data.get("basicInfo", {}).get("bannerId"),
-            "AccountCreateTime": data.get("basicInfo", {}).get("createAt"),
-            "AccountEXP": data.get("basicInfo", {}).get("exp"),
-            "AccountLastLogin": data.get("basicInfo", {}).get("lastLoginAt"),
-            "AccountLevel": data.get("basicInfo", {}).get("level"),
-            "AccountLikes": data.get("basicInfo", {}).get("liked"),
-            "AccountName": data.get("basicInfo", {}).get("nickname"),
-            "AccountRegion": data.get("basicInfo", {}).get("region"),
-            "AccountSeasonId": data.get("basicInfo", {}).get("seasonId"),
-            "AccountType": data.get("basicInfo", {}).get("accountType"),
-            "BrMaxRank": data.get("basicInfo", {}).get("maxRank"),
-            "BrRankPoint": data.get("basicInfo", {}).get("rankingPoints"),
-            "CsMaxRank": data.get("basicInfo", {}).get("csMaxRank"),
-            "CsRankPoint": data.get("basicInfo", {}).get("csRankingPoints"),
-            "EquippedWeapon": data.get("basicInfo", {}).get("weaponSkinShows", []),
-            "ReleaseVersion": data.get("basicInfo", {}).get("releaseVersion"),
-            "ShowBrRank": data.get("basicInfo", {}).get("showBrRank"),
-            "ShowCsRank": data.get("basicInfo", {}).get("showCsRank"),
-            "Title": data.get("basicInfo", {}).get("title")
-        },
-        "AccountProfileInfo": {
-            "EquippedOutfit": data.get("profileInfo", {}).get("clothes", []),
-            "EquippedSkills": data.get("profileInfo", {}).get("equipedSkills", [])
-        },
-        "GuildInfo": {
-            "GuildCapacity": data.get("clanBasicInfo", {}).get("capacity"),
-            "GuildID": str(data.get("clanBasicInfo", {}).get("clanId")),
-            "GuildLevel": data.get("clanBasicInfo", {}).get("clanLevel"),
-            "GuildMember": data.get("clanBasicInfo", {}).get("memberNum"),
-            "GuildName": data.get("clanBasicInfo", {}).get("clanName"),
-            "GuildOwner": str(data.get("clanBasicInfo", {}).get("captainId"))
-        },
+        "AccountInfo": data.get("basicInfo", {}),
+        "AccountProfileInfo": data.get("profileInfo", {}),
+        "GuildInfo": data.get("clanBasicInfo", {}),
         "captainBasicInfo": data.get("captainBasicInfo", {}),
         "creditScoreInfo": data.get("creditScoreInfo", {}),
         "petInfo": data.get("petInfo", {}),
@@ -162,27 +137,31 @@ def format_response(data):
 
 # === API Routes ===
 @app.route('/get')
-def get_account_info():
+async def get_account_info():
     uid = request.args.get('uid')
     if not uid:
         return jsonify({"error": "Please provide UID."}), 400
     try:
-        region = "ME"  # Always use ME region
-        data = asyncio.run(GetAccountInformation(uid, "7", region, "/GetPlayerPersonalShow"))
-        formatted = format_response(data)
+        region = "ME"
+        return_data = await GetAccountInformation(uid, "7", region, "/GetPlayerPersonalShow")
+        formatted = format_response(return_data)
         return jsonify(formatted), 200
     except Exception as e:
-        return jsonify({"error": "Invalid UID or server error. Please try again."}), 500
+        return jsonify({"error": str(e)}), 500
 
-@app.route("/refresh")
-def refresh_tokens():
+@app.route('/refresh', methods=['GET', 'POST'])
+async def refresh_tokens_endpoint():
     try:
-        for region in SUPPORTED_REGIONS:
-            create_jwt(region)
-        return jsonify({"message":"Tokens refreshed"}), 200
-    except Exception:
-        return jsonify({"error": "Server error"}), 500
+        await initialize_tokens()
+        return jsonify({'message': 'Tokens refreshed for all regions.'}), 200
+    except Exception as e:
+        return jsonify({'error': f'Refresh failed: {e}'}), 500
 
 # === Startup ===
-if __name__ == "__main__":
-    app.run(host="0.0.0.0", port=int(os.environ.get("PORT",5000)))
+async def startup():
+    await initialize_tokens()
+    asyncio.create_task(refresh_tokens_periodically())
+
+if __name__ == '__main__':
+    asyncio.run(startup())
+    app.run(host='0.0.0.0', port=int(os.environ.get("PORT", 5000)))

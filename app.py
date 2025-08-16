@@ -8,6 +8,7 @@ from typing import Tuple
 
 import httpx
 from quart import Quart, request, jsonify
+from quart_cors import cors
 from cachetools import TTLCache
 from google.protobuf import json_format, message
 from google.protobuf.message import Message
@@ -19,16 +20,21 @@ from proto import FreeFire_pb2, main_pb2, AccountPersonalShow_pb2
 # CONFIGURATION
 # =======================
 
+# AES Keys
 MAIN_KEY = base64.b64decode('WWcmdGMlREV1aDYlWmNeOA==')
 MAIN_IV = base64.b64decode('Nm95WkRyMjJFM3ljaGpNJQ==')
 
+# Game/API Settings
 RELEASEVERSION = "OB50"
 USERAGENT = "Dalvik/2.1.0 (Linux; U; Android 13; CPH2095 Build/RKQ1.211119.001)"
 
-GUEST_ACCOUNT = "uid=3979453236&password=790276AD097765884A1E9E743D796B540C1C435661B1D898FACBE8CC25AC457F"
+# Account
+GUEST_ACCOUNT = "uid=3998786367&password=7577A5E2F529AFE6DB59FDB613A673BE65E05A0CD01E11304F7CC10065BC8FBD"
 SUPPORTED_REGIONS = {"ME"}
 
+# Quart & Cache
 app = Quart(__name__)
+app = cors(app)
 cache = TTLCache(maxsize=100, ttl=300)
 cached_tokens = defaultdict(dict)
 
@@ -80,6 +86,7 @@ async def get_access_token(account: str):
 async def create_jwt(region: str):
     account = get_account_credentials(region)
     token_val, open_id = await get_access_token(account)
+
     body = json.dumps({
         "open_id": open_id,
         "open_id_type": "4",
@@ -88,6 +95,7 @@ async def create_jwt(region: str):
     })
     proto_bytes = await json_to_proto(body, FreeFire_pb2.LoginReq())
     payload = aes_cbc_encrypt(MAIN_KEY, MAIN_IV, proto_bytes)
+
     url = "https://loginbp.ggblueshark.com/MajorLogin"
     headers = {
         'User-Agent': USERAGENT,
@@ -110,15 +118,6 @@ async def create_jwt(region: str):
         'expires_at': time.time() + 25200
     }
 
-async def initialize_tokens():
-    tasks = [create_jwt(r) for r in SUPPORTED_REGIONS]
-    await asyncio.gather(*tasks)
-
-async def refresh_tokens_periodically():
-    while True:
-        await asyncio.sleep(25200)
-        await initialize_tokens()
-
 async def get_token_info(region: str) -> Tuple[str, str, str]:
     info = cached_tokens.get(region)
     if info and time.time() < info['expires_at']:
@@ -134,8 +133,10 @@ async def get_token_info(region: str) -> Tuple[str, str, str]:
 async def GetAccountInformation(uid, unk, region, endpoint):
     if region not in SUPPORTED_REGIONS:
         raise ValueError(f"Unsupported region: {region}")
+
     payload = await json_to_proto(json.dumps({'a': uid, 'b': unk}), main_pb2.GetPlayerPersonalShow())
     data_enc = aes_cbc_encrypt(MAIN_KEY, MAIN_IV, payload)
+
     token, lock, server = await get_token_info(region)
     headers = {
         'User-Agent': USERAGENT,
@@ -154,40 +155,45 @@ async def GetAccountInformation(uid, unk, region, endpoint):
             decode_protobuf(resp.content, AccountPersonalShow_pb2.AccountPersonalShowInfo)
         ))
 
-def format_response(data):
-    return {"AccountInfo": data.get("basicInfo",{}), "Profile": data.get("profileInfo",{}), "Guild": data.get("clanBasicInfo",{})}
+# =======================
+# CACHING DECORATOR
+# =======================
+
+def cached_endpoint(ttl=300):
+    def decorator(fn):
+        @wraps(fn)
+        async def wrapper(*a, **k):
+            key = (request.path, tuple(sorted(request.args.items())))
+            if key in cache:
+                return cache[key]
+            res = await fn(*a, **k)
+            cache[key] = res
+            return res
+        return wrapper
+    return decorator
 
 # =======================
 # ROUTES
 # =======================
 
 @app.route('/info')
+@cached_endpoint()
 async def get_account_info():
     uid = request.args.get('uid')
     if not uid:
         return jsonify({"error": "Please provide UID."}), 400
+
     try:
         data = await GetAccountInformation(uid, "7", "ME", "/GetPlayerPersonalShow")
-        return jsonify(format_response(data)), 200
+        formatted_json = json.dumps(data, indent=2, ensure_ascii=False)
+        return formatted_json, 200, {'Content-Type': 'application/json; charset=utf-8'}
     except Exception as e:
         return jsonify({"error": str(e)}), 500
 
 @app.route('/refresh', methods=['GET', 'POST'])
 async def refresh_tokens_endpoint():
     try:
-        await initialize_tokens()
+        await create_jwt("ME")
         return jsonify({'message': 'Tokens refreshed for ME region.'}), 200
     except Exception as e:
         return jsonify({'error': f'Refresh failed: {e}'}), 500
-
-# =======================
-# STARTUP
-# =======================
-
-async def startup():
-    await initialize_tokens()
-    asyncio.create_task(refresh_tokens_periodically())
-
-if __name__ == '__main__':
-    asyncio.run(startup())
-    app.run(host='0.0.0.0', port=5000, debug=True)

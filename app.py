@@ -176,7 +176,7 @@ def cached_endpoint(ttl=300):
 # ROUTES
 # =======================
 
-@app.route('/info')
+@app.route('/get')
 @cached_endpoint()
 async def get_account_info():
     uid = request.args.get('uid')

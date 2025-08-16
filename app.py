@@ -46,7 +46,7 @@ async def json_to_proto(json_data: str, proto_message: Message) -> bytes:
 def get_account_credentials(region: str) -> str:
     # Default account for all regions
     return "uid=3998786367&password=7577A5E2F529AFE6DB59FDB613A673BE65E05A0CD01E11304F7CC10065BC8FBD"
- 
+
 # === Token Generation with Retry ===
 async def get_access_token(account: str, retries=3):
     url = "https://ffmconnect.live.gop.garenanow.com/oauth/guest/token/grant"
@@ -171,6 +171,13 @@ async def startup():
     await initialize_tokens()
     asyncio.create_task(refresh_tokens_periodically())
 
+# === Run Quart App with Hypercorn for async ===
 if __name__ == '__main__':
-    asyncio.run(startup())
-    app.run(host='0.0.0.0', port=int(os.environ.get("PORT", 5000)))
+    import hypercorn.asyncio
+    from hypercorn.config import Config
+
+    config = Config()
+    config.bind = ["0.0.0.0:5000"]
+    loop = asyncio.get_event_loop()
+    loop.create_task(startup())
+    loop.run_until_complete(hypercorn.asyncio.serve(app, config))

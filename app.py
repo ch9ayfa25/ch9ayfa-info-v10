@@ -174,13 +174,15 @@ def get_account_info():
     except Exception as e:
         return jsonify({"error": "Invalid UID or server error. Please try again."}), 500
 
-@app.route('/refresh', methods=['GET', 'POST'])
-def refresh_tokens_endpoint():
+@app.route("/refresh")
+def refresh_tokens():
     try:
-        asyncio.run(initialize_tokens())
-        return jsonify({'message': 'Tokens refreshed for all regions.'}), 200
-    except Exception as e:
-        return jsonify({'error': f'Refresh failed: {e}'}), 500
+        for region in SUPPORTED_REGIONS:
+            create_jwt(region)
+        return jsonify({"message":"Tokens refreshed"}), 200
+    except Exception:
+        return jsonify({"error": "Server error"}), 500
 
 # === Startup ===
-# Vercel serverless ma kay7tajch app.run
+if __name__ == "__main__":
+    app.run(host="0.0.0.0", port=int(os.environ.get("PORT",5000)))

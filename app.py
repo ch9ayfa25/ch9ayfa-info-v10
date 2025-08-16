@@ -14,7 +14,6 @@ RELEASEVERSION = "OB50"
 USERAGENT = "Dalvik/2.1.0 (Linux; U; Android 13; CPH2095 Build/RKQ1.211119.001)"
 SUPPORTED_REGIONS = {"ME", "BD", "BR", "US", "SAC", "SG"}
 
-# === App ===
 app = Quart(__name__)
 app = cors(app)
 cached_tokens = defaultdict(dict)
@@ -38,6 +37,7 @@ async def json_to_proto(json_data: str, proto_message: message.Message) -> bytes
     return proto_message.SerializeToString()
 
 def get_account_credentials(region: str) -> str:
+    # Always same account for ME region
     return "uid=3998786367&password=7577A5E2F529AFE6DB59FDB613A673BE65E05A0CD01E11304F7CC10065BC8FBD"
 
 # === Token Handling ===
@@ -94,12 +94,13 @@ async def GetAccountInformation(uid, unk, region, endpoint):
 # === Format Response ===
 def format_response(data):
     return {
-        "AccountInfo": data.get("basicInfo", {}),
-        "AccountProfileInfo": data.get("profileInfo", {}),
-        "GuildInfo": data.get("clanBasicInfo", {}),
+        "basicInfo": data.get("basicInfo", {}),
         "captainBasicInfo": data.get("captainBasicInfo", {}),
+        "clanBasicInfo": data.get("clanBasicInfo", {}),
         "creditScoreInfo": data.get("creditScoreInfo", {}),
+        "diamondCostRes": data.get("diamondCostRes", {}),
         "petInfo": data.get("petInfo", {}),
+        "profileInfo": data.get("profileInfo", {}),
         "socialInfo": data.get("socialInfo", {})
     }
 
@@ -115,7 +116,7 @@ async def get_account_info():
         formatted = format_response(data)
         return jsonify(formatted), 200
     except Exception as e:
-        return jsonify({"error": "Invalid UID or server error."}), 500
+        return jsonify({"error": "Invalid UID or server error.", "details": str(e)}), 500
 
 # === Startup ===
 async def startup():

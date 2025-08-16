@@ -10,4 +10,3 @@ apscheduler==3.11.1
 Pillow==10.1.0
 google==3.0.0
 flask[async]==3.0.2
-hypercorn==2.16.3

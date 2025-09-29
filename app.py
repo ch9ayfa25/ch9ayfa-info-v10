@@ -1,5 +1,4 @@
 import os
-
 import asyncio
 import time
 import json
@@ -31,7 +30,7 @@ RELEASEVERSION = "OB50"
 USERAGENT = "Dalvik/2.1.0 (Linux; U; Android 13; CPH2095 Build/RKQ1.211119.001)"
 
 # Account
-GUEST_ACCOUNT = "uid=3998786367&password=7577A5E2F529AFE6DB59FDB613A673BE65E05A0CD01E11304F7CC10065BC8FBD"
+GUEST_ACCOUNT = "uid=4000576816&password=05789ABA8AC3F6163E532EB58873DAF1FE2FA77541312BA9F6B99A47DE62775D"
 SUPPORTED_REGIONS = {"ME"}
 
 # Quart & Cache
@@ -186,40 +185,11 @@ async def get_account_info():
         return jsonify({"error": "Please provide UID."}), 400
 
     try:
-        # fetch the server, token, etc.
-        data_raw = await GetAccountInformation(uid, "7", "ME", "/GetPlayerPersonalShow")
-        # try formatting nicely
-        formatted_json = json.dumps(data_raw, indent=2, ensure_ascii=False)
+        data = await GetAccountInformation(uid, "7", "ME", "/GetPlayerPersonalShow")
+        formatted_json = json.dumps(data, indent=2, ensure_ascii=False)
         return formatted_json, 200, {'Content-Type': 'application/json; charset=utf-8'}
-
     except Exception as e:
-        # DEBUG: check raw response if Protobuf fails
-        try:
-            # fallback: maybe it's JSON
-            async with httpx.AsyncClient() as client:
-                token, lock, server = await get_token_info("ME")
-                headers = {
-                    'User-Agent': USERAGENT,
-                    'Authorization': cached_tokens["ME"]["token"],
-                    'Connection': "Keep-Alive",
-                    'Accept-Encoding': "gzip",
-                    'Content-Type': "application/octet-stream",
-                    'X-Unity-Version': "2018.4.11f1",
-                    'ReleaseVersion': RELEASEVERSION
-                }
-                payload = await json_to_proto(json.dumps({'a': uid, 'b': "7"}), main_pb2.GetPlayerPersonalShow())
-                data_enc = aes_cbc_encrypt(MAIN_KEY, MAIN_IV, payload)
-                resp = await client.post(server + "/GetPlayerPersonalShow", data=data_enc, headers=headers)
-                try:
-                    proto_data = decode_protobuf(resp.content, AccountPersonalShow_pb2.AccountPersonalShowInfo)
-                    data_json = json.loads(json_format.MessageToJson(proto_data))
-                    return json.dumps(data_json, indent=2, ensure_ascii=False), 200
-                except Exception:
-                    # fallback: return raw content as JSON
-                    return resp.text, 200
-        except Exception as inner:
-            return jsonify({"error": str(inner)}), 500
-
+        return jsonify({"error": str(e)}), 500
 
 @app.route('/refresh', methods=['GET', 'POST'])
 async def refresh_tokens_endpoint():
@@ -228,6 +198,7 @@ async def refresh_tokens_endpoint():
         return jsonify({'message': 'Tokens refreshed for ME region.'}), 200
     except Exception as e:
         return jsonify({'error': f'Refresh failed: {e}'}), 500
+
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", 8080))
     app.run(host="0.0.0.0", port=port)

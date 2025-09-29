@@ -210,9 +210,4 @@ async def refresh_tokens_endpoint():
 
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", 8080))
-    # Run Quart with Hypercorn in production
-    from hypercorn.asyncio import serve
-    from hypercorn.config import Config
-    config = Config()
-    config.bind = [f"0.0.0.0:{port}"]
-    asyncio.run(serve(app, config))
+    app.run(host="0.0.0.0", port=port)

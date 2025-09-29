@@ -15,34 +15,32 @@ from google.protobuf import json_format, message
 from google.protobuf.message import Message
 from Crypto.Cipher import AES
 
-# =======================
-# IMPORT YOUR PROTO FILES
-# =======================
-# Make sure proto/ folder is uploaded with these files
 from proto import FreeFire_pb2, main_pb2, AccountPersonalShow_pb2
 
 # =======================
 # CONFIGURATION
 # =======================
 
+# AES Keys
 MAIN_KEY = base64.b64decode('WWcmdGMlREV1aDYlWmNeOA==')
 MAIN_IV = base64.b64decode('Nm95WkRyMjJFM3ljaGpNJQ==')
 
+# Game/API Settings
 RELEASEVERSION = "OB50"
 USERAGENT = "Dalvik/2.1.0 (Linux; U; Android 13; CPH2095 Build/RKQ1.211119.001)"
 
-# Example guest account
+# Account
 GUEST_ACCOUNT = "uid=4000576816&password=05789ABA8AC3F6163E532EB58873DAF1FE2FA77541312BA9F6B99A47DE62775D"
 SUPPORTED_REGIONS = {"ME"}
 
-# Quart app & cache
+# Quart & Cache
 app = Quart(__name__)
 app = cors(app)
 cache = TTLCache(maxsize=100, ttl=300)
 cached_tokens = defaultdict(dict)
 
 # =======================
-# HELPERS
+# HELPER FUNCTIONS
 # =======================
 
 def pad(text: bytes) -> bytes:
@@ -188,10 +186,9 @@ async def get_account_info():
 
     try:
         data = await GetAccountInformation(uid, "7", "ME", "/GetPlayerPersonalShow")
-        return jsonify(data)
+        formatted_json = json.dumps(data, indent=2, ensure_ascii=False)
+        return formatted_json, 200, {'Content-Type': 'application/json; charset=utf-8'}
     except Exception as e:
-        import traceback
-        print(traceback.format_exc())
         return jsonify({"error": str(e)}), 500
 
 @app.route('/refresh', methods=['GET', 'POST'])
@@ -200,14 +197,17 @@ async def refresh_tokens_endpoint():
         await create_jwt("ME")
         return jsonify({'message': 'Tokens refreshed for ME region.'}), 200
     except Exception as e:
-        import traceback
-        print(traceback.format_exc())
         return jsonify({'error': f'Refresh failed: {e}'}), 500
 
 # =======================
-# RUN APP
+# RUN ASGI
 # =======================
 
 if __name__ == "__main__":
-    port = int(os.environ.get("PORT", 8080))
-    app.run(host="0.0.0.0", port=port)
+    import hypercorn.asyncio
+    from hypercorn.config import Config
+
+    config = Config()
+    config.bind = [f"0.0.0.0:{os.environ.get('PORT', 8080)}"]
+
+    asyncio.run(hypercorn.asyncio.serve(app, config))

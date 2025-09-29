@@ -21,26 +21,22 @@ from proto import FreeFire_pb2, main_pb2, AccountPersonalShow_pb2
 # CONFIGURATION
 # =======================
 
-# AES Keys
 MAIN_KEY = base64.b64decode('WWcmdGMlREV1aDYlWmNeOA==')
 MAIN_IV = base64.b64decode('Nm95WkRyMjJFM3ljaGpNJQ==')
 
-# Game/API Settings
 RELEASEVERSION = "OB50"
 USERAGENT = "Dalvik/2.1.0 (Linux; U; Android 13; CPH2095 Build/RKQ1.211119.001)"
 
-# Account
 GUEST_ACCOUNT = "uid=4000576816&password=05789ABA8AC3F6163E532EB58873DAF1FE2FA77541312BA9F6B99A47DE62775D"
 SUPPORTED_REGIONS = {"ME"}
 
-# Quart & Cache
 app = Quart(__name__)
 app = cors(app)
 cache = TTLCache(maxsize=100, ttl=300)
 cached_tokens = defaultdict(dict)
 
 # =======================
-# HELPER FUNCTIONS
+# HELPERS
 # =======================
 
 def pad(text: bytes) -> bytes:
@@ -199,15 +195,6 @@ async def refresh_tokens_endpoint():
     except Exception as e:
         return jsonify({'error': f'Refresh failed: {e}'}), 500
 
-# =======================
-# RUN ASGI
-# =======================
-
 if __name__ == "__main__":
-    import hypercorn.asyncio
-    from hypercorn.config import Config
-
-    config = Config()
-    config.bind = [f"0.0.0.0:{os.environ.get('PORT', 8080)}"]
-
-    asyncio.run(hypercorn.asyncio.serve(app, config))
+    port = int(os.environ.get("PORT", 8080))
+    app.run(host="0.0.0.0", port=port)

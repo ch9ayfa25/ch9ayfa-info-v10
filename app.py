@@ -1,4 +1,5 @@
 import os
+
 import asyncio
 import time
 import json
@@ -21,13 +22,19 @@ from proto import FreeFire_pb2, main_pb2, AccountPersonalShow_pb2
 # CONFIGURATION
 # =======================
 
+# AES Keys
 MAIN_KEY = base64.b64decode('WWcmdGMlREV1aDYlWmNeOA==')
 MAIN_IV = base64.b64decode('Nm95WkRyMjJFM3ljaGpNJQ==')
+
+# Game/API Settings
 RELEASEVERSION = "OB50"
 USERAGENT = "Dalvik/2.1.0 (Linux; U; Android 13; CPH2095 Build/RKQ1.211119.001)"
-GUEST_ACCOUNT = "uid=4000576816&password=05789ABA8AC3F6163E532EB58873DAF1FE2FA77541312BA9F6B99A47DE62775D"
+
+# Account
+GUEST_ACCOUNT = "uid=3998786367&password=7577A5E2F529AFE6DB59FDB613A673BE65E05A0CD01E11304F7CC10065BC8FBD"
 SUPPORTED_REGIONS = {"ME"}
 
+# Quart & Cache
 app = Quart(__name__)
 app = cors(app)
 cache = TTLCache(maxsize=100, ttl=300)
@@ -45,6 +52,11 @@ def aes_cbc_encrypt(key: bytes, iv: bytes, plaintext: bytes) -> bytes:
     aes = AES.new(key, AES.MODE_CBC, iv)
     return aes.encrypt(pad(plaintext))
 
+def decode_protobuf(encoded_data: bytes, message_type: message.Message) -> message.Message:
+    instance = message_type()
+    instance.ParseFromString(encoded_data)
+    return instance
+
 async def json_to_proto(json_data: str, proto_message: Message) -> bytes:
     json_format.ParseDict(json.loads(json_data), proto_message)
     return proto_message.SerializeToString()
@@ -53,7 +65,7 @@ def get_account_credentials(region: str) -> str:
     return GUEST_ACCOUNT
 
 # =======================
-# TOKEN HANDLING
+# TOKEN GENERATION
 # =======================
 
 async def get_access_token(account: str):
@@ -99,9 +111,7 @@ async def create_jwt(region: str):
     }
     async with httpx.AsyncClient() as client:
         resp = await client.post(url, data=payload, headers=headers)
-        msg = json.loads(json_format.MessageToJson(
-            FreeFire_pb2.LoginRes.FromString(resp.content)
-        ))
+        msg = json.loads(json_format.MessageToJson(decode_protobuf(resp.content, FreeFire_pb2.LoginRes)))
 
     cached_tokens[region] = {
         'token': f"Bearer {msg.get('token','0')}",
@@ -144,11 +154,11 @@ async def GetAccountInformation(uid, unk, region, endpoint):
     async with httpx.AsyncClient() as client:
         resp = await client.post(server + endpoint, data=data_enc, headers=headers)
         return json.loads(json_format.MessageToJson(
-            AccountPersonalShow_pb2.AccountPersonalShowInfo.FromString(resp.content)
+            decode_protobuf(resp.content, AccountPersonalShow_pb2.AccountPersonalShowInfo)
         ))
 
 # =======================
-# CACHE DECORATOR
+# CACHING DECORATOR
 # =======================
 
 def cached_endpoint(ttl=300):
@@ -189,9 +199,6 @@ async def refresh_tokens_endpoint():
         return jsonify({'message': 'Tokens refreshed for ME region.'}), 200
     except Exception as e:
         return jsonify({'error': f'Refresh failed: {e}'}), 500
-
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", 8080))
-    import hypercorn.asyncio
-    import asyncio
-    asyncio.run(hypercorn.asyncio.serve(app, hypercorn.Config()))
+    app.run(host="0.0.0.0", port=port)

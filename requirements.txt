@@ -1,6 +1,8 @@
 quart
 quart-cors
 httpx
-pycryptodome
 protobuf
+pycryptodome
 cachetools
+gunicorn
+uvicorn

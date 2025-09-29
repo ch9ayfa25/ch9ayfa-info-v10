@@ -14,6 +14,7 @@ from google.protobuf import json_format, message
 from google.protobuf.message import Message
 from Crypto.Cipher import AES
 
+# Import protobufs
 from proto import FreeFire_pb2, main_pb2, AccountPersonalShow_pb2
 
 # =======================
@@ -29,12 +30,14 @@ RELEASEVERSION = "OB50"
 USERAGENT = "Dalvik/2.1.0 (Linux; U; Android 13; CPH2095 Build/RKQ1.211119.001)"
 
 # Account
-GUEST_ACCOUNT = "uid=3998786367&password=7577A5E2F529AFE6DB59FDB613A673BE65E05A0CD01E11304F7CC10065BC8FBD"
+GUEST_ACCOUNT = (
+    "uid=3998786367&password=7577A5E2F529AFE6DB59FDB613A673BE65E05A0CD01E11304F7CC10065BC8FBD"
+)
 SUPPORTED_REGIONS = {"ME"}
 
 # Quart & Cache
 app = Quart(__name__)
-app = cors(app)
+app = cors(app, allow_origin="*")
 cache = TTLCache(maxsize=100, ttl=300)
 cached_tokens = defaultdict(dict)
 
@@ -176,6 +179,10 @@ def cached_endpoint(ttl=300):
 # ROUTES
 # =======================
 
+@app.route('/')
+async def home():
+    return "✅ API is running with Quart!"
+
 @app.route('/get')
 @cached_endpoint()
 async def get_account_info():
@@ -197,3 +204,10 @@ async def refresh_tokens_endpoint():
         return jsonify({'message': 'Tokens refreshed for ME region.'}), 200
     except Exception as e:
         return jsonify({'error': f'Refresh failed: {e}'}), 500
+
+# =======================
+# STARTUP
+# =======================
+if __name__ == "__main__":
+    port = int(os.environ.get("PORT", 8080))
+    app.run(host="0.0.0.0", port=port)

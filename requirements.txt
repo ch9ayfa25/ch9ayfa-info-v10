@@ -1,8 +1,6 @@
-quart
-quart-cors
-httpx
-protobuf
-pycryptodome
-cachetools
-gunicorn
-uvicorn
+quart==0.18.1
+quart-cors==0.8.0
+httpx==0.28.1
+cachetools==5.4.0
+pycryptodome==3.18.0
+protobuf==3.20.3

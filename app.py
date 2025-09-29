@@ -197,7 +197,7 @@ async def refresh_tokens_endpoint():
         await create_jwt("ME")
         return jsonify({'message': 'Tokens refreshed for ME region.'}), 200
     except Exception as e:
-        return jsonify({'error': f'Refresh failed: {e}'}), 500
+        return jsonify({'error'}), 500
 
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", 8080))

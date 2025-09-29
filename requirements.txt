@@ -1,5 +1,7 @@
-protobuf==4.23.4
 quart==0.18.0
 httpx==0.25.0
 pycryptodome==3.18.0
 cachetools==5.5.0
+protobuf==3.20.3
+quart-cors==0.2.1
+hypercorn==1.1.0

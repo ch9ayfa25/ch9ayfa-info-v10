@@ -4,3 +4,4 @@ httpx==0.28.1
 cachetools==5.4.0
 pycryptodome==3.18.0
 protobuf==3.20.3
+werkzeug==2.3.7

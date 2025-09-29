@@ -3,6 +3,7 @@ import asyncio
 import time
 import json
 import base64
+import traceback
 from collections import defaultdict
 from functools import wraps
 from typing import Tuple
@@ -15,6 +16,7 @@ from google.protobuf import json_format, message
 from google.protobuf.message import Message
 from Crypto.Cipher import AES
 
+# Import your protobuf files (make sure proto/ folder is deployed!)
 from proto import FreeFire_pb2, main_pb2, AccountPersonalShow_pb2
 
 # =======================
@@ -79,7 +81,7 @@ async def get_access_token(account: str):
         'Accept-Encoding': "gzip",
         'Content-Type': "application/x-www-form-urlencoded"
     }
-    async with httpx.AsyncClient() as client:
+    async with httpx.AsyncClient(timeout=15.0) as client:
         resp = await client.post(url, data=payload, headers=headers)
         data = resp.json()
         return data.get("access_token", "0"), data.get("open_id", "0")
@@ -108,7 +110,7 @@ async def create_jwt(region: str):
         'X-GA': "v1 1",
         'ReleaseVersion': RELEASEVERSION
     }
-    async with httpx.AsyncClient() as client:
+    async with httpx.AsyncClient(timeout=15.0) as client:
         resp = await client.post(url, data=payload, headers=headers)
         msg = json.loads(json_format.MessageToJson(decode_protobuf(resp.content, FreeFire_pb2.LoginRes)))
 
@@ -150,7 +152,7 @@ async def GetAccountInformation(uid, unk, region, endpoint):
         'X-GA': "v1 1",
         'ReleaseVersion': RELEASEVERSION
     }
-    async with httpx.AsyncClient() as client:
+    async with httpx.AsyncClient(timeout=15.0) as client:
         resp = await client.post(server + endpoint, data=data_enc, headers=headers)
         return json.loads(json_format.MessageToJson(
             decode_protobuf(resp.content, AccountPersonalShow_pb2.AccountPersonalShowInfo)
@@ -189,6 +191,8 @@ async def get_account_info():
         formatted_json = json.dumps(data, indent=2, ensure_ascii=False)
         return formatted_json, 200, {'Content-Type': 'application/json; charset=utf-8'}
     except Exception as e:
+        # Full traceback logging for Railway
+        print(traceback.format_exc())
         return jsonify({"error": str(e)}), 500
 
 @app.route('/refresh', methods=['GET', 'POST'])
@@ -197,9 +201,19 @@ async def refresh_tokens_endpoint():
         await create_jwt("ME")
         return jsonify({'message': 'Tokens refreshed for ME region.'}), 200
     except Exception as e:
+        print(traceback.format_exc())
         return jsonify({'error': f'Refresh failed: {e}'}), 500
+
+# =======================
+# RUN AS ASGI (Hypercorn)
+# =======================
 
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", 8080))
-    log.info(f"Starting local dev server on 0.0.0.0:{port}")
-    app.run(host="0.0.0.0", port=port)
+    # Production-ready: use Hypercorn
+    from hypercorn.asyncio import serve
+    from hypercorn.config import Config
+
+    config = Config()
+    config.bind = [f"0.0.0.0:{port}"]
+    asyncio.run(serve(app, config))

@@ -1,7 +1,6 @@
 quart==0.18.1
 quart-cors==0.8.0
 httpx==0.28.1
-cachetools==5.4.0
+cachetools==5.3.1
 pycryptodome==3.18.0
-protobuf==3.20.3
-werkzeug==2.3.7
+protobuf==3.19.6

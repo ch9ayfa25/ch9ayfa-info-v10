@@ -186,11 +186,40 @@ async def get_account_info():
         return jsonify({"error": "Please provide UID."}), 400
 
     try:
-        data = await GetAccountInformation(uid, "7", "ME", "/GetPlayerPersonalShow")
-        formatted_json = json.dumps(data, indent=2, ensure_ascii=False)
+        # fetch the server, token, etc.
+        data_raw = await GetAccountInformation(uid, "7", "ME", "/GetPlayerPersonalShow")
+        # try formatting nicely
+        formatted_json = json.dumps(data_raw, indent=2, ensure_ascii=False)
         return formatted_json, 200, {'Content-Type': 'application/json; charset=utf-8'}
+
     except Exception as e:
-        return jsonify({"error": str(e)}), 500
+        # DEBUG: check raw response if Protobuf fails
+        try:
+            # fallback: maybe it's JSON
+            async with httpx.AsyncClient() as client:
+                token, lock, server = await get_token_info("ME")
+                headers = {
+                    'User-Agent': USERAGENT,
+                    'Authorization': cached_tokens["ME"]["token"],
+                    'Connection': "Keep-Alive",
+                    'Accept-Encoding': "gzip",
+                    'Content-Type': "application/octet-stream",
+                    'X-Unity-Version': "2018.4.11f1",
+                    'ReleaseVersion': RELEASEVERSION
+                }
+                payload = await json_to_proto(json.dumps({'a': uid, 'b': "7"}), main_pb2.GetPlayerPersonalShow())
+                data_enc = aes_cbc_encrypt(MAIN_KEY, MAIN_IV, payload)
+                resp = await client.post(server + "/GetPlayerPersonalShow", data=data_enc, headers=headers)
+                try:
+                    proto_data = decode_protobuf(resp.content, AccountPersonalShow_pb2.AccountPersonalShowInfo)
+                    data_json = json.loads(json_format.MessageToJson(proto_data))
+                    return json.dumps(data_json, indent=2, ensure_ascii=False), 200
+                except Exception:
+                    # fallback: return raw content as JSON
+                    return resp.text, 200
+        except Exception as inner:
+            return jsonify({"error": str(inner)}), 500
+
 
 @app.route('/refresh', methods=['GET', 'POST'])
 async def refresh_tokens_endpoint():

@@ -3,7 +3,6 @@ import asyncio
 import time
 import json
 import base64
-import traceback
 from collections import defaultdict
 from functools import wraps
 from typing import Tuple
@@ -16,33 +15,34 @@ from google.protobuf import json_format, message
 from google.protobuf.message import Message
 from Crypto.Cipher import AES
 
-# Import your protobuf files (make sure proto/ folder is deployed!)
+# =======================
+# IMPORT YOUR PROTO FILES
+# =======================
+# Make sure proto/ folder is uploaded with these files
 from proto import FreeFire_pb2, main_pb2, AccountPersonalShow_pb2
 
 # =======================
 # CONFIGURATION
 # =======================
 
-# AES Keys
 MAIN_KEY = base64.b64decode('WWcmdGMlREV1aDYlWmNeOA==')
 MAIN_IV = base64.b64decode('Nm95WkRyMjJFM3ljaGpNJQ==')
 
-# Game/API Settings
 RELEASEVERSION = "OB50"
 USERAGENT = "Dalvik/2.1.0 (Linux; U; Android 13; CPH2095 Build/RKQ1.211119.001)"
 
-# Account
+# Example guest account
 GUEST_ACCOUNT = "uid=4000576816&password=05789ABA8AC3F6163E532EB58873DAF1FE2FA77541312BA9F6B99A47DE62775D"
 SUPPORTED_REGIONS = {"ME"}
 
-# Quart & Cache
+# Quart app & cache
 app = Quart(__name__)
 app = cors(app)
 cache = TTLCache(maxsize=100, ttl=300)
 cached_tokens = defaultdict(dict)
 
 # =======================
-# HELPER FUNCTIONS
+# HELPERS
 # =======================
 
 def pad(text: bytes) -> bytes:
@@ -81,7 +81,7 @@ async def get_access_token(account: str):
         'Accept-Encoding': "gzip",
         'Content-Type': "application/x-www-form-urlencoded"
     }
-    async with httpx.AsyncClient(timeout=15.0) as client:
+    async with httpx.AsyncClient() as client:
         resp = await client.post(url, data=payload, headers=headers)
         data = resp.json()
         return data.get("access_token", "0"), data.get("open_id", "0")
@@ -110,7 +110,7 @@ async def create_jwt(region: str):
         'X-GA': "v1 1",
         'ReleaseVersion': RELEASEVERSION
     }
-    async with httpx.AsyncClient(timeout=15.0) as client:
+    async with httpx.AsyncClient() as client:
         resp = await client.post(url, data=payload, headers=headers)
         msg = json.loads(json_format.MessageToJson(decode_protobuf(resp.content, FreeFire_pb2.LoginRes)))
 
@@ -152,7 +152,7 @@ async def GetAccountInformation(uid, unk, region, endpoint):
         'X-GA': "v1 1",
         'ReleaseVersion': RELEASEVERSION
     }
-    async with httpx.AsyncClient(timeout=15.0) as client:
+    async with httpx.AsyncClient() as client:
         resp = await client.post(server + endpoint, data=data_enc, headers=headers)
         return json.loads(json_format.MessageToJson(
             decode_protobuf(resp.content, AccountPersonalShow_pb2.AccountPersonalShowInfo)
@@ -188,10 +188,9 @@ async def get_account_info():
 
     try:
         data = await GetAccountInformation(uid, "7", "ME", "/GetPlayerPersonalShow")
-        formatted_json = json.dumps(data, indent=2, ensure_ascii=False)
-        return formatted_json, 200, {'Content-Type': 'application/json; charset=utf-8'}
+        return jsonify(data)
     except Exception as e:
-        # Full traceback logging for Railway
+        import traceback
         print(traceback.format_exc())
         return jsonify({"error": str(e)}), 500
 
@@ -201,19 +200,19 @@ async def refresh_tokens_endpoint():
         await create_jwt("ME")
         return jsonify({'message': 'Tokens refreshed for ME region.'}), 200
     except Exception as e:
+        import traceback
         print(traceback.format_exc())
         return jsonify({'error': f'Refresh failed: {e}'}), 500
 
 # =======================
-# RUN AS ASGI (Hypercorn)
+# RUN APP
 # =======================
 
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", 8080))
-    # Production-ready: use Hypercorn
+    # Run Quart with Hypercorn in production
     from hypercorn.asyncio import serve
     from hypercorn.config import Config
-
     config = Config()
     config.bind = [f"0.0.0.0:{port}"]
     asyncio.run(serve(app, config))

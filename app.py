@@ -1,3 +1,4 @@
+import os
 import asyncio
 import time
 import json
@@ -5,7 +6,6 @@ import base64
 from collections import defaultdict
 from functools import wraps
 from typing import Tuple
-import os
 
 import httpx
 from quart import Quart, request, jsonify
@@ -15,7 +15,6 @@ from google.protobuf import json_format, message
 from google.protobuf.message import Message
 from Crypto.Cipher import AES
 
-# Import protobufs
 from proto import FreeFire_pb2, main_pb2, AccountPersonalShow_pb2
 
 # =======================
@@ -31,14 +30,12 @@ RELEASEVERSION = "OB50"
 USERAGENT = "Dalvik/2.1.0 (Linux; U; Android 13; CPH2095 Build/RKQ1.211119.001)"
 
 # Account
-GUEST_ACCOUNT = (
-    "uid=3998786367&password=7577A5E2F529AFE6DB59FDB613A673BE65E05A0CD01E11304F7CC10065BC8FBD"
-)
+GUEST_ACCOUNT = "uid=4000576816&password=05789ABA8AC3F6163E532EB58873DAF1FE2FA77541312BA9F6B99A47DE62775D"
 SUPPORTED_REGIONS = {"ME"}
 
 # Quart & Cache
 app = Quart(__name__)
-app = cors(app, allow_origin="*")
+app = cors(app)
 cache = TTLCache(maxsize=100, ttl=300)
 cached_tokens = defaultdict(dict)
 
@@ -180,10 +177,6 @@ def cached_endpoint(ttl=300):
 # ROUTES
 # =======================
 
-@app.route('/')
-async def home():
-    return "✅ API is running with Quart!"
-
 @app.route('/get')
 @cached_endpoint()
 async def get_account_info():
@@ -206,9 +199,6 @@ async def refresh_tokens_endpoint():
     except Exception as e:
         return jsonify({'error': f'Refresh failed: {e}'}), 500
 
-# =======================
-# STARTUP
-# =======================
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", 8080))
     app.run(host="0.0.0.0", port=port)

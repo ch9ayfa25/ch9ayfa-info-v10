@@ -1,1 +1,1 @@
-web: hypercorn app:app --bind 0.0.0.0:$PORT
+web: bash setup.sh && hypercorn app:app --bind 0.0.0.0:$PORT --workers 1

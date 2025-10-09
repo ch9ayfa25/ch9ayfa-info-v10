@@ -1,6 +1,6 @@
 flask
 flask-cors
 httpx
-cachetools
-pycryptodome
 protobuf
+pycryptodome
+cachetools

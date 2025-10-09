@@ -1,6 +1,6 @@
-flask
-flask-cors
+quart
+quart-cors
 httpx
-protobuf
 pycryptodome
+protobuf
 cachetools

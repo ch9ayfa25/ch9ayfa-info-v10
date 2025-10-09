@@ -5,7 +5,6 @@ import json
 import os
 from flask import Flask, request, jsonify
 from flask_cors import CORS
-from cachetools import TTLCache
 from proto import FreeFire_pb2, main_pb2, AccountPersonalShow_pb2
 from google.protobuf import json_format, message
 from google.protobuf.message import Message
@@ -18,11 +17,10 @@ MAIN_KEY = base64.b64decode('WWcmdGMlREV1aDYlWmNeOA==')
 MAIN_IV = base64.b64decode('Nm95WkRyMjJFM3ljaGpNJQ==')
 RELEASEVERSION = "OB50"
 USERAGENT = "Dalvik/2.1.0 (Linux; U; Android 13; CPH2095 Build/RKQ1.211119.001)"
-SUPPORTED_REGIONS = ["IND", "ME", "BD"]
+try_regions = ["IND", "ME", "BD"]  # regions li l-bot ychouf fihom UID
 
 app = Flask(__name__)
 CORS(app)
-
 cached_tokens = defaultdict(dict)
 
 # ===================== AES HELPERS =====================
@@ -31,7 +29,6 @@ def pad(text: bytes) -> bytes:
     return text + bytes([padding_length] * padding_length)
 
 def aes_cbc_encrypt(key: bytes, iv: bytes, plaintext: bytes) -> bytes:
-    from Crypto.Cipher import AES
     aes = AES.new(key, AES.MODE_CBC, iv)
     return aes.encrypt(pad(plaintext))
 
@@ -56,7 +53,12 @@ def get_account_credentials(region: str) -> str:
 async def get_access_token(account: str):
     url = "https://ffmconnect.live.gop.garenanow.com/oauth/guest/token/grant"
     payload = account + "&response_type=token&client_type=2&client_secret=2ee44819e9b4598845141067b281621874d0d5d7af9d8f7e00c1e54715b7d1e3&client_id=100067"
-    headers = {'User-Agent': USERAGENT, 'Connection': "Keep-Alive", 'Accept-Encoding': "gzip", 'Content-Type': "application/x-www-form-urlencoded"}
+    headers = {
+        'User-Agent': USERAGENT,
+        'Connection': "Keep-Alive",
+        'Accept-Encoding': "gzip",
+        'Content-Type': "application/x-www-form-urlencoded"
+    }
     try:
         async with httpx.AsyncClient(timeout=15) as client:
             resp = await client.post(url, data=payload, headers=headers)
@@ -70,7 +72,12 @@ async def create_jwt(region: str):
     token_val, open_id = await get_access_token(account)
     if token_val == "0":
         return
-    body = json.dumps({"open_id": open_id, "open_id_type": "4", "login_token": token_val, "orign_platform_type": "4"})
+    body = json.dumps({
+        "open_id": open_id,
+        "open_id_type": "4",
+        "login_token": token_val,
+        "orign_platform_type": "4"
+    })
     proto_bytes = await json_to_proto(body, FreeFire_pb2.LoginReq())
     payload = aes_cbc_encrypt(MAIN_KEY, MAIN_IV, proto_bytes)
     url = "https://loginbp.ggblueshark.com/MajorLogin"
@@ -133,38 +140,43 @@ async def GetAccountInformation(uid, unk, region, endpoint):
 def home():
     return jsonify({"status": "✅ FF API Fast Mode Running."})
 
-@app.route('/get', methods=['GET'])
+@app.route('/get')
 def get_account_info():
     uid = request.args.get('uid')
     if not uid:
-        return jsonify({"error": "Please provide uid."}), 400
+        return jsonify({"error": "Please provide UID."}), 400
 
-    try_regions = ["IND", "ME", "BD"]
+    data = {}
+    detected_region = None
+    for region in try_regions:
+        info = asyncio.run(GetAccountInformation(uid, "7", region, "/GetPlayerPersonalShow"))
+        if info:
+            data = info
+            detected_region = region
+            break
 
-    async def try_regions_func():
-        for reg in try_regions:
-            result = await GetAccountInformation(uid, "7", reg, "/GetPlayerPersonalShow")
-            if result and result.get("basicInfo"):
-                return reg, result
-        return None, None
+    if not data:
+        return jsonify({"error": "No info found for UID in any region."}), 404
 
-    region, result = asyncio.run(try_regions_func())
-    if not result:
-        return jsonify({"error": f"UID not found in {try_regions}."}), 404
-
-    # ===== Build exact same response structure =====
     response = {
-        "DetectedRegion": region,
-        "AccountInfo": result.get("basicInfo", {}),
-        "CaptainInfo": result.get("captainBasicInfo", {}),
-        "CreditScore": result.get("creditScoreInfo", {}),
-        "GuildInfo": result.get("clanBasicInfo", {}),
-        "PetInfo": result.get("petInfo", {}),
-        "ProfileInfo": result.get("profileInfo", {}),
-        "SocialInfo": result.get("socialInfo", {})
+        "uid": uid,
+        "region_detected": detected_region,
+        "data": data
     }
+    return jsonify(response)
 
-    return jsonify(response), 200
+
+
+@app.route('/refresh', methods=['GET', 'POST'])
+async def refresh_tokens_endpoint():
+    region = request.args.get('region', 'ME').upper()
+    if region not in try_regions:
+        return jsonify({"error": f"Region not supported. Choose from {try_regions}"}), 400
+    try:
+        await create_jwt(region)
+        return jsonify({'message': f'Tokens refreshed for {region} region.'}), 200
+    except Exception as e:
+        return jsonify({'error': f'Refresh failed: {e}'}), 500
 
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", 8080))
